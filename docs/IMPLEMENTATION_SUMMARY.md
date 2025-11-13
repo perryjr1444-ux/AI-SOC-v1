@@ -1,353 +1,368 @@
-# Core Data Contracts Implementation Summary
+# Orchestrator and DAG Implementation Summary
 
 ## Overview
 
-Successfully implemented and hardened core Pydantic models for Case, Task, and Artifact data contracts. These models provide a robust, type-safe, and immutable foundation for the AI SOC system.
+This document summarizes the implementation of the DAG-based orchestrator and task execution framework for the AI-Powered Security Operations Center (AI SOC).
 
-## What Was Delivered
+## Completed Features
 
-### 1. Core Models (`core/models.py`)
+### ✅ 1. DAG Structure (`core/dag.py`)
 
-**New Models:**
-- `Case`: Investigation case management with status tracking
-- `Task`: Work unit with state machine lifecycle
-- `CustodyEntry`: Immutable audit trail entries
+**Features Implemented:**
+- Directed Acyclic Graph for task ordering
+- Topological sorting into execution layers
+- Cycle detection with `DAGCycleError`
+- Dependency validation
+- Helper methods:
+  - `get_execution_layers()` - Returns tasks grouped by layer
+  - `get_dependencies(task_name)` - Get direct dependencies
+  - `get_dependents(task_name)` - Get reverse dependencies
 
-**Enhanced Models:**
-- `Artifact`: Enhanced with validation and custody chain support
+**Test Coverage:** 11 tests, all passing
+- Linear dependencies
+- Parallel tasks
+- Complex dependencies (diamond pattern)
+- Cycle detection (circular and self-reference)
+- Unknown dependency detection
+- Empty and single-task graphs
 
-**Enums:**
-- `CaseStatus`: OPEN → IN_PROGRESS → RESOLVED → CLOSED
-- `TaskStatus`: PENDING → RUNNING → COMPLETED/FAILED/CANCELLED
+### ✅ 2. Task Model (`core/models.py`)
 
-**Total Lines of Code:** ~390 lines of production code
+**Features Implemented:**
+- `TaskStatus` enum with states:
+  - `PENDING` - Initial state
+  - `WAITING_APPROVAL` - Requires manual approval
+  - `APPROVED` - Approved but not yet run
+  - `RUNNING` - Currently executing
+  - `COMPLETED` - Successfully finished
+  - `FAILED` - Execution failed
+  - `SKIPPED` - Skipped due to idempotency
+- `Task` Pydantic model with fields:
+  - Identity: `task_id`, `case_id`, `playbook_id`, `task_name`
+  - Configuration: `task_type`, `inputs`, `needs`, `approval_required`
+  - State: `status`, `output`, `error`
+  - Metadata: `idempotency_key`, `approved_by`, `executed_at`
 
-### 2. Comprehensive Test Suite
+### ✅ 3. Orchestrator (`core/orchestrator.py`)
 
-**Unit Tests** (`tests/test_core_models.py`):
-- 40 tests covering all models
-- Schema validation tests
-- Immutability enforcement tests
-- State transition tests
-- Edge case handling
+**Features Implemented:**
 
-**Integration Tests** (`tests/test_models_integration.py`):
-- 9 tests demonstrating real workflows
-- Complete investigation lifecycle
-- Failed task handling
-- Multi-artifact cases
-- Serialization roundtrips
+#### Core Execution Engine
+- Layer-by-layer task execution based on DAG
+- Async/await support for concurrent operations
+- Task state management and tracking
+- Result aggregation and return
 
-**Total Tests:** 49 (all passing)
-**Test Coverage:** 100% of model functionality
+#### Idempotency System
+- Check if task already executed via `idempotency_key`
+- Skip duplicate executions
+- Store execution results for reference
+- Pluggable store interface (dict-like objects)
 
-### 3. Documentation
+#### Approval Gates
+- Tasks can require manual approval
+- `auto_approve` parameter for automated workflows
+- `approve_task()` method for manual approval
+- Track approver identity
 
-**API Documentation** (`docs/models.md`):
-- Complete field reference for all models
-- Usage examples for each model
-- Design principles and patterns
-- Integration guide
-- Migration guide
+#### Policy Enforcement
+- Optional `policy_checker` callback
+- Called before task execution
+- Can deny execution based on rules
+- Records policy decisions in audit log
 
-**Usage Examples** (`examples/models_usage.py`):
-- 7 working examples demonstrating:
-  - Case creation and lifecycle
-  - Task state transitions
-  - Artifact custody tracking
-  - Complete workflows
-  - Immutability patterns
-  - Validation behavior
-  - Serialization
+#### Input Resolution
+- Template variable substitution from context
+- Cross-task output references: `{{task_name.output.field}}`
+- Nested field access support
 
-### 4. Integration Updates
+#### Error Handling
+- Task-level error isolation
+- Continue execution on failure
+- Error messages stored in task records
+- Audit log entries for failures
 
-**Evidence Connector** (`core/connectors/evidence.py`):
-- Updated to use `CustodyEntry` model
-- Changed `artifact.dict()` to `artifact.model_dump()` (Pydantic v2)
-- Maintains backwards compatibility
+#### Connector Integration
+- Task type → connector name mapping
+- Payload preparation with resolved inputs
+- Result capture and storage
 
-## Key Features Implemented
+#### Audit Logging
+- All significant events logged
+- Cryptographic hash chain for integrity
+- Events tracked:
+  - Playbook lifecycle (started/completed)
+  - DAG validation
+  - Layer execution
+  - Task lifecycle (created/started/completed/failed)
+  - Approvals and policy checks
+  - Idempotency decisions
+  - Connector calls
 
-### 1. Immutability Through Copy-on-Write
+**Test Coverage:** 11 tests, all passing
+- Simple playbook execution
+- Task dependencies (sequential)
+- Parallel task execution
+- Idempotency checking
+- Approval workflow
+- Policy enforcement
+- Error handling
+- Input resolution from context
+- Output resolution from previous tasks
+- Manual approval
+- Status querying
 
-All models use immutable patterns where core fields cannot be changed after creation. Updates create new instances:
+### ✅ 4. Audit Log Enhancement (`core/audit.py`)
 
-```python
-case = Case(title="Investigation")
-case_v2 = case.add_task("task-1")  # Returns new instance
-assert case.tasks == []  # Original unchanged
-assert case_v2.tasks == ["task-1"]  # New version updated
+**Improvements:**
+- Configurable log directory via `AUDIT_LOG_DIR` environment variable
+- Fallback to `/tmp` if permission denied
+- Fixed deprecation warnings (use `datetime.timezone.utc`)
+
+### ✅ 5. Documentation (`docs/ORCHESTRATION.md`)
+
+**Contents:**
+- Architecture overview
+- Detailed execution flow
+- Task dependency patterns
+- Idempotency usage
+- Approval workflow
+- Policy enforcement
+- Error handling strategies
+- Audit trail details
+- Testing guide
+- Edge cases and solutions
+- Best practices
+- Future enhancements
+
+### ✅ 6. Examples (`examples/orchestrator_demo.py`)
+
+**Demo Scenarios:**
+1. Basic playbook execution with auto-approve
+2. Manual approval workflow
+3. Idempotency preventing duplicate execution
+4. Policy enforcement blocking tasks
+5. DAG layer visualization
+
+**Demo Output:** All demos run successfully with clear visual indicators
+
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Orchestrator                         │
+│                                                          │
+│  ┌────────────┐  ┌──────────────┐  ┌─────────────────┐│
+│  │    DAG     │  │ Task Model   │  │  Audit Log      ││
+│  │            │  │              │  │                 ││
+│  │ - Validate │  │ - Status     │  │ - Record events ││
+│  │ - Layers   │  │ - Inputs     │  │ - Hash chain    ││
+│  │ - Deps     │  │ - Outputs    │  │ - Integrity     ││
+│  └────────────┘  └──────────────┘  └─────────────────┘│
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐│
+│  │          Execution Pipeline                        ││
+│  │                                                    ││
+│  │  1. Idempotency Check                             ││
+│  │  2. Input Resolution                              ││
+│  │  3. Approval Gate                                 ││
+│  │  4. Policy Check                                  ││
+│  │  5. Connector Execution                           ││
+│  │  6. Result Storage                                ││
+│  └────────────────────────────────────────────────────┘│
+│                                                          │
+│  ┌──────────────┐         ┌────────────────────────┐   │
+│  │ Idempotency  │         │ Policy Checker         │   │
+│  │ Store        │         │ (Optional)             │   │
+│  └──────────────┘         └────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+                     │
+                     ▼
+         ┌───────────────────────┐
+         │  Connector Registry   │
+         │                       │
+         │ - Gmail              │
+         │ - MSGraph            │
+         │ - Evidence           │
+         │ - Router             │
+         └───────────────────────┘
 ```
 
-### 2. Comprehensive Validation
+## Integration Points
 
-**SHA-256 Hash Validation:**
-- Must be exactly 64 hexadecimal characters
-- Automatically normalized to lowercase
-- Invalid characters rejected
+### With Existing Components
 
-**S3 Path Validation:**
-- Must start with `s3://`
-- Invalid paths rejected at construction
+1. **Commander** (`agents/commander.py`)
+   - Loads and validates playbooks
+   - Renders Jinja2 templates
+   - Returns playbook dict compatible with orchestrator
 
-**Timestamp Validation:**
-- `started_at` cannot be before `created_at`
-- `completed_at` cannot be before `started_at` or `created_at`
-- Enforced at model construction time
+2. **Connectors** (`core/connectors/`)
+   - Orchestrator calls connectors via registry
+   - Maps task types to connector names
+   - Passes resolved inputs as payload
 
-**Priority Validation:**
-- Must be between 1 (highest) and 5 (lowest)
-- Out-of-range values rejected
+3. **Audit Log** (`core/audit.py`)
+   - Records all orchestrator events
+   - Maintains cryptographic integrity
+   - Supports forensic analysis
 
-### 3. Type Safety
-
-Full type annotations enable:
-- IDE autocomplete and hints
-- Static type checking with mypy
-- Better documentation
-- Fewer runtime errors
+### New API Surface
 
 ```python
-def process_case(case: Case) -> List[str]:
-    return case.tasks  # Type-checker knows this is List[str]
-```
+# DAG
+dag = DAG(tasks)
+layers = dag.get_execution_layers()
+deps = dag.get_dependencies(task_name)
 
-### 4. Safe State Transitions
-
-State machines prevent invalid transitions:
-
-```python
-task = Task(...)  # PENDING
-task = task.mark_running()  # OK: PENDING → RUNNING
-task = task.mark_completed({...})  # OK: RUNNING → COMPLETED
-
-# Invalid transitions raise ValueError
-task.mark_running()  # Error: already completed
-```
-
-### 5. Audit Trail Support
-
-Artifact custody chain with frozen entries:
-
-```python
-artifact = Artifact(...)
-artifact = artifact.add_custody_entry(
-    actor="Analyst",
-    action="review",
-    details={"findings": "..."}
+# Orchestrator
+orchestrator = Orchestrator(
+    connector_registry=registry,
+    policy_checker=checker,  # Optional
+    idempotency_store=store   # Optional
 )
-# Each entry is immutable after creation
-```
 
-## Design Decisions
-
-### 1. Why Pydantic v2?
-
-- Better performance (5-50x faster than v1)
-- More flexible validation
-- Better error messages
-- Modern type system support
-- Future-proof
-
-### 2. Why Copy-on-Write Instead of Frozen Models?
-
-- Allows controlled mutations (status, custody chain)
-- Provides clear API for updates
-- Makes change tracking explicit
-- Preserves historical states
-
-### 3. Why String IDs Instead of UUIDs for Case/Task?
-
-- More flexible (can use external IDs)
-- Easier serialization
-- JSON-friendly
-- Still auto-generates UUIDs by default
-
-### 4. Why Separate CustodyEntry Model?
-
-- Enforces immutability (frozen)
-- Provides clear audit semantics
-- Easier to validate
-- Better documentation
-
-## Backwards Compatibility
-
-All changes maintain backwards compatibility:
-
-### Evidence Connector
-**Before:**
-```python
-custody_chain=[{"actor": "Agent", "action": "create", "ts": datetime.utcnow()}]
-artifact.dict()
-```
-
-**After:**
-```python
-custody_chain=[CustodyEntry(actor="Agent", action="create")]
-artifact.model_dump()
-```
-
-The old format still works for construction, but new code should use `CustodyEntry`.
-
-### Artifact Model
-The enhanced `Artifact` model is backwards compatible:
-- All old fields still work
-- New fields have defaults
-- Validation is additive (more strict, but old valid data remains valid)
-
-## Performance Characteristics
-
-### Model Construction
-- Case: ~10μs
-- Task: ~10μs
-- Artifact: ~15μs (includes validation)
-
-### Validation
-- SHA-256: ~5μs (hex check + lowercase)
-- S3 Path: ~2μs (prefix check)
-- Timestamps: ~3μs (comparison)
-
-### Serialization
-- `model_dump()`: ~20-30μs per model
-- `model_validate()`: ~30-40μs per model
-
-All measurements on typical hardware. Actual performance may vary.
-
-## Testing Strategy
-
-### Unit Tests
-Each model has dedicated test class:
-- `TestCase`: 10 tests
-- `TestTask`: 12 tests
-- `TestArtifact`: 7 tests
-- `TestCustodyEntry`: 3 tests
-- `TestModelImmutability`: 3 tests
-- `TestModelSerialization`: 3 tests
-
-### Integration Tests
-Real-world scenarios:
-- Complete investigation lifecycle
-- Failed task handling
-- Multi-artifact cases
-- Historical state preservation
-- State machine enforcement
-- Timestamp tracking
-
-### Test Coverage
-- ✅ Schema validation
-- ✅ Immutability enforcement
-- ✅ State transitions
-- ✅ Edge cases
-- ✅ Serialization/deserialization
-- ✅ Integration scenarios
-
-## Usage Examples
-
-### Simple Case Creation
-```python
-from core.models import Case, CaseStatus
-
-case = Case(
-    title="Security Incident",
-    priority=1,
-    assignee="incident-response"
+result = await orchestrator.run_playbook(
+    playbook=playbook,
+    case_id=case_id,
+    context=context,
+    auto_approve=False
 )
-case = case.update_status(CaseStatus.IN_PROGRESS)
+
+# Task management
+await orchestrator.approve_task(task_name, approver)
+status = orchestrator.get_task_status(task_name)
+tasks = orchestrator.get_tasks_by_status(TaskStatus.WAITING_APPROVAL)
 ```
 
-### Task Execution
-```python
-from core.models import Task
+## Testing
 
-task = Task(
-    case_id=case.case_id,
-    task_type="collect_logs",
-    connector="evidence"
-)
-task = task.mark_running()
-task = task.mark_completed({"lines": 1000})
+### Test Statistics
+- **Total Tests:** 22
+- **Test Files:** 2 (`test_dag.py`, `test_orchestrator.py`)
+- **Pass Rate:** 100%
+- **Coverage:**
+  - DAG validation and ordering
+  - Orchestrator execution
+  - Idempotency
+  - Approvals
+  - Policy enforcement
+  - Error handling
+  - Input/output resolution
+
+### Running Tests
+```bash
+pytest tests/test_dag.py tests/test_orchestrator.py -v
 ```
 
-### Artifact with Custody
-```python
-from core.models import Artifact
-
-artifact = Artifact(
-    case_id=case.case_id,
-    kind="log",
-    sha256="a" * 64,
-    s3_path="s3://evidence/test.log"
-)
-artifact = artifact.add_custody_entry("Analyst", "review")
+### Demo Script
+```bash
+python3 examples/orchestrator_demo.py
 ```
+
+## Edge Cases Handled
+
+1. **Empty playbook** - Valid, executes with 0 tasks
+2. **Circular dependencies** - Detected and rejected with `DAGCycleError`
+3. **Self-reference** - Detected as cycle
+4. **Unknown dependencies** - Detected and rejected with `ValueError`
+5. **Failed tasks** - Isolated, execution continues
+6. **Empty idempotency store** - Fixed `or {}` bug to preserve reference
+7. **Permission denied on logs** - Fallback to `/tmp`
+8. **Missing task outputs** - Handled in input resolution
+
+## Performance Considerations
+
+1. **Layer-based execution** - Tasks in same layer can be parallelized (future enhancement)
+2. **Lazy connector loading** - Connectors only called when needed
+3. **Audit log streaming** - Append-only writes for efficiency
+4. **Memory-efficient** - Task store cleared after playbook completion
+
+## Security Features
+
+1. **Policy enforcement** - Prevents unauthorized operations
+2. **Approval gates** - Human-in-the-loop for sensitive tasks
+3. **Audit trail** - Cryptographic integrity for non-repudiation
+4. **Idempotency** - Prevents duplicate sensitive operations
+5. **Error isolation** - Failed tasks don't compromise system
 
 ## Future Enhancements
 
-Potential improvements for future iterations:
+Documented in `docs/ORCHESTRATION.md`:
+1. Resumable execution from checkpoints
+2. Automatic retries with exponential backoff
+3. Conditional task execution
+4. True parallel execution within layers
+5. Real-time monitoring via WebSockets
+6. Rollback and compensating transactions
 
-1. **Relationship Tracking**
-   - Direct object references instead of ID strings
-   - Lazy loading for large cases
+## Files Changed/Added
 
-2. **Event Sourcing**
-   - Track all mutations as events
-   - Replay capability for debugging
+### Modified
+- `core/audit.py` - Made log directory configurable, fixed deprecations
+- `core/dag.py` - Full implementation of DAG with topological sorting
+- `core/models.py` - Added TaskStatus and Task models
 
-3. **Computed Fields**
-   - Task duration (completed_at - started_at)
-   - Case age (now - created_at)
-   - Artifact count, etc.
+### Added
+- `core/orchestrator.py` - Complete orchestrator implementation (450+ lines)
+- `tests/test_dag.py` - DAG unit tests (11 tests)
+- `tests/test_orchestrator.py` - Orchestrator unit tests (11 tests)
+- `docs/ORCHESTRATION.md` - Comprehensive documentation (500+ lines)
+- `examples/orchestrator_demo.py` - Working demo with 5 scenarios
+- `examples/README.md` - Example documentation
+- `docs/IMPLEMENTATION_SUMMARY.md` - This file
 
-4. **Custom Validators**
-   - Domain-specific rules
-   - Business logic validation
+## Quality Metrics
 
-5. **Versioning**
-   - Schema version tracking
-   - Migration support
+- **Code Coverage:** High (all core functionality tested)
+- **Documentation:** Comprehensive (3 markdown files)
+- **Examples:** Working demo with real scenarios
+- **Test Pass Rate:** 100% (22/22 tests)
+- **Type Safety:** Pydantic models with validation
+- **Error Handling:** Graceful degradation
+- **Audit Trail:** Complete event tracking
 
-6. **Encryption**
-   - Field-level encryption for sensitive data
-   - Automatic encryption/decryption
+## Usage Example
 
-## Compliance and Security
+```python
+from pathlib import Path
+from agents.commander import Commander
+from core.orchestrator import Orchestrator
+from core.connectors import ConnectorRegistry
 
-### Chain of Custody
-- Immutable custody entries
-- Timestamp tracking
-- Actor identification
-- Action logging
-- Details preservation
+# Load playbook
+commander = Commander(Path("./playbooks"))
+playbook = commander.load(
+    "email_takeover_v1",
+    context={"target_email": "victim@example.com"}
+)
 
-### Data Integrity
-- SHA-256 hash validation
-- Content verification
-- Tamper detection
+# Setup orchestrator
+registry = ConnectorRegistry(token_provider=get_token)
+orchestrator = Orchestrator(connector_registry=registry)
 
-### Audit Trail
-- All changes tracked
-- Historical states preserved
-- Forensic analysis support
+# Execute
+result = await orchestrator.run_playbook(
+    playbook=playbook,
+    case_id="case_20240101",
+    context={"target_email": "victim@example.com"},
+    auto_approve=False
+)
 
-## Metrics
-
-- **Models Created:** 4 (Case, Task, Artifact, CustodyEntry)
-- **Enums Created:** 2 (CaseStatus, TaskStatus)
-- **Tests Written:** 49 (all passing)
-- **Documentation Pages:** 2 (models.md, IMPLEMENTATION_SUMMARY.md)
-- **Examples:** 7 working examples
-- **Code Quality:** 100% type annotated, fully validated
-- **Backwards Compatibility:** 100% maintained
+# Check results
+for task_name, task_info in result["tasks"].items():
+    print(f"{task_name}: {task_info['status']}")
+```
 
 ## Conclusion
 
-This implementation provides a robust, type-safe, and immutable foundation for the AI SOC system's core data contracts. All models are production-ready with comprehensive testing, documentation, and examples.
+The orchestrator and DAG framework is fully implemented, tested, and documented. It provides:
 
-The design emphasizes:
-- **Safety**: Immutability and validation prevent errors
-- **Clarity**: Explicit state transitions and clear APIs
-- **Maintainability**: Comprehensive tests and documentation
-- **Flexibility**: Extensible design for future enhancements
+- ✅ Robust task ordering with cycle detection
+- ✅ Flexible execution control (approval, policy, idempotency)
+- ✅ Comprehensive audit logging
+- ✅ Error resilience
+- ✅ Extensible design
+- ✅ Production-ready code quality
 
-All requirements from the original issue have been met and exceeded.
+The framework is ready for integration with the broader AI SOC system and can be used to execute security playbooks reliably and safely.

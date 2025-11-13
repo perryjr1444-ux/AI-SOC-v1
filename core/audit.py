@@ -1,17 +1,17 @@
 import json
 import hashlib
 import datetime
+import os
 from pathlib import Path
 
-_LOG_DIR = Path("/var/log/mac_blue_team_audit")
-
-def _ensure_log_dir():
-    """Ensure the log directory exists, creating it if possible."""
-    try:
-        _LOG_DIR.mkdir(parents=True, exist_ok=True)
-    except PermissionError:
-        # In testing or restricted environments, this is handled by test setup
-        pass
+# Use a configurable log directory
+_LOG_DIR = Path(os.environ.get("AUDIT_LOG_DIR", "/var/log/mac_blue_team_audit"))
+try:
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+except PermissionError:
+    # Fall back to a temp directory if we don't have permissions
+    _LOG_DIR = Path("/tmp/mac_blue_team_audit")
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class AuditLog:
@@ -36,7 +36,7 @@ class AuditLog:
             return tail.strip().split()[-1]
 
     def record(self, *, case_id: str, task_id: str, event: str, details: str = ""):
-        ts = datetime.datetime.utcnow().isoformat() + "Z"
+        ts = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
         entry = {
             "case_id": case_id,
             "task_id": task_id,

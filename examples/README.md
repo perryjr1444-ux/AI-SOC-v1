@@ -1,51 +1,48 @@
-# Examples Directory
+# Orchestrator Examples
 
-This directory contains example scripts and demonstrations for the playbook system.
+This directory contains example scripts demonstrating how to use the orchestrator and DAG task execution framework.
 
-## Demo Scripts
+## Running the Demo
 
-### `demo_commander.py`
-
-Demonstrates how to use the Commander module to load and render playbooks with variable substitution.
-
-**Run the demo:**
 ```bash
-cd /home/runner/work/jigglesmccrusty/jigglesmccrusty
-PYTHONPATH=. python3 examples/demo_commander.py
+python3 examples/orchestrator_demo.py
 ```
 
-**What it shows:**
-- Loading three different playbooks (email takeover, device compromise, router lockdown)
-- Variable substitution with context dictionaries
-- Task execution graph with dependencies
-- Approval gates for sensitive operations
-- Task reference preservation for runtime resolution
+## What the Demo Shows
 
-## Quick Start
+The demo script (`orchestrator_demo.py`) demonstrates the following features:
 
-```python
-from agents.commander import Commander
-from pathlib import Path
+### 1. Basic Playbook Execution
+- Creating a playbook with task dependencies
+- Auto-approving tasks that require approval
+- Sequential execution based on dependencies
 
-# Initialize Commander
-commander = Commander(Path("playbooks"))
+### 2. Manual Approval Workflow
+- Tasks that wait for manual approval
+- Retrieving tasks by status
+- Approving tasks programmatically
 
-# Load a playbook with context
-context = {
-    "target_email": "user@example.com",
-    "case_id": "INC-001",
-    "new_password_enc": "encrypted_pwd"
-}
+### 3. Idempotency
+- Preventing duplicate execution using idempotency keys
+- Sharing idempotency state across orchestrator instances
+- Skipping already-executed tasks
 
-playbook = commander.load("email_takeover_v1", context)
+### 4. Policy Enforcement
+- Implementing custom policy checkers
+- Blocking tasks based on policy rules
+- Recording policy decisions in audit logs
 
-# Access playbook data
-print(f"Loaded: {playbook['playbook_id']}")
-print(f"Tasks: {len(playbook['tasks'])}")
+### 5. DAG Layer Execution
+- Visualizing task dependencies
+- Understanding execution layers
+- Identifying tasks that can run in parallel
+
+## Expected Output
+
+When you run the demo, you should see output similar to:
+
 ```
+████████████████████████████████████████████████████████████
+  ORCHESTRATOR & DAG TASK EXECUTION FRAMEWORK DEMO
+████████████████████████████████████████████████████████████
 
-## More Information
-
-- [Playbook Documentation](../docs/playbooks.md)
-- [Playbook Directory](../playbooks/)
-- [Test Suite](../tests/test_commander.py)
