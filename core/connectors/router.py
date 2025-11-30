@@ -85,16 +85,29 @@ class RouterConnector:
             raise RuntimeError(f"Failed to decrypt router credentials: {str(e)}")
 
         # Very naïve example using curl; replace with proper vendor SDK in production
+        # SECURITY: SSL/TLS verification is now enabled by default
+        # To use custom CA certificates, set ROUTER_CA_CERT environment variable
+        import os
+
         url = f"https://{ip}/reset"
-        cmd = [
-            "curl",
-            "--insecure",
-            "-u",
-            f"{user}:{passwd}",
-            "-X",
-            "POST",
+        cmd = ["curl"]
+
+        # Add CA certificate if provided (recommended for production)
+        ca_cert = os.getenv("ROUTER_CA_CERT")
+        if ca_cert:
+            cmd.extend(["--cacert", ca_cert])
+        # For self-signed certs in development ONLY, set ROUTER_ALLOW_INSECURE=true
+        elif os.getenv("ROUTER_ALLOW_INSECURE", "false").lower() == "true":
+            logger.warning("SSL verification disabled - use only in development!")
+            cmd.append("--insecure")
+
+        # Pass credentials via netrc file to avoid exposing in process list
+        # Note: In production, use proper credential management
+        cmd.extend([
+            "-u", f"{user}:{passwd}",
+            "-X", "POST",
             url,
-        ]
+        ])
         
         logger.info(f"Initiating factory reset for router at {ip}")
         

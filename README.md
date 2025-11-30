@@ -196,6 +196,265 @@ curl -X POST http://localhost:8000/tasks \
 
 ---
 
+## Raspberry Pi 5 Deployment
+
+### 🔧 Hardware Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| **Model** | Raspberry Pi 5 | Raspberry Pi 5 (8GB RAM) |
+| **RAM** | 4GB | 8GB |
+| **Storage** | 32GB microSD | 64GB+ NVMe SSD via PCIe |
+| **OS** | Raspberry Pi OS 64-bit | Raspberry Pi OS 64-bit (Debian 12) |
+| **Network** | 100 Mbps Ethernet | 1 Gbps Ethernet |
+| **Power** | 5V 5A USB-C PD | 5V 5A USB-C PD with active cooling |
+
+### 📦 Quick Installation
+
+**One-line automated deployment:**
+```bash
+git clone https://github.com/yourusername/AI-SOC-v1.git
+cd AI-SOC-v1
+chmod +x deploy-pi5.sh
+./deploy-pi5.sh
+```
+
+The script will automatically:
+- ✅ Detect Raspberry Pi 5 hardware
+- ✅ Install Python 3.11+, Node.js, Poetry
+- ✅ Set up Docker with ARM64 images
+- ✅ Deploy Kafka, Redis, and MinIO
+- ✅ Build frontend and backend services
+- ✅ Create systemd services for auto-start
+- ✅ Apply memory and CPU optimizations
+- ✅ Configure environment variables
+
+### 🚀 Manual Installation
+
+<details>
+<summary>Click to expand manual installation steps</summary>
+
+#### 1. Update System
+```bash
+sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get install -y build-essential git curl python3-dev python3-pip
+```
+
+#### 2. Install Python 3.11+
+```bash
+# Check current version
+python3 --version
+
+# If < 3.11, install from source:
+cd /tmp
+wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tar.xz
+tar -xf Python-3.11.9.tar.xz
+cd Python-3.11.9
+./configure --enable-optimizations
+make -j$(nproc)
+sudo make altinstall
+```
+
+#### 3. Install Poetry
+```bash
+curl -sSL https://install.python-poetry.org | python3 -
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+#### 4. Install Node.js (ARM64)
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+#### 5. Install Docker
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+#### 6. Deploy Infrastructure
+```bash
+# Start Kafka and Redis
+docker compose -f kafka-docker-compose.yml up -d
+
+# Verify services
+docker ps
+```
+
+#### 7. Install Backend
+```bash
+cd ai_soc/
+poetry install
+poetry run uvicorn ai_soc.main:app --host 0.0.0.0 --port 9000 &
+```
+
+#### 8. Install Frontend
+```bash
+cd ..
+npm install
+npm run build
+python3 -m http.server 5173 --directory dist &
+```
+
+</details>
+
+### ⚙️ Configuration for Raspberry Pi
+
+**Edit `/opt/ai-soc/.env` after installation:**
+
+```bash
+# Resource Optimization
+AI_SOC_KAFKA_LOG_RETENTION_HOURS=24  # Reduced from 168 for space
+AI_SOC_MAX_WORKERS=2                  # Limit concurrent processing
+
+# Memory Limits
+DOCKER_KAFKA_MEMORY_LIMIT=1g
+DOCKER_REDIS_MEMORY_LIMIT=512m
+
+# Pi-Specific Paths
+AI_SOC_LOG_PATH=/var/log/ai-soc
+AI_SOC_DATA_PATH=/opt/ai-soc/data
+```
+
+### 🎯 Performance Optimizations
+
+**For 4GB Raspberry Pi 5:**
+```bash
+# Increase swap
+sudo dphys-swapfile swapoff
+sudo sed -i 's/CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile
+sudo dphys-swapfile setup
+sudo dphys-swapfile swapon
+
+# Enable zram compression
+sudo apt-get install -y zram-tools
+
+# Set CPU governor to performance
+echo "performance" | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+```
+
+**For 8GB Raspberry Pi 5:**
+- Run full LLM models locally (quantized 7B models)
+- Enable full threat intelligence feeds
+- Increase Kafka retention to 72 hours
+
+### 🔐 Security Hardening for Pi
+
+```bash
+# Change default credentials in .env
+MINIO_ACCESS_KEY=$(openssl rand -hex 16)
+MINIO_SECRET_KEY=$(openssl rand -hex 32)
+
+# Enable UFW firewall
+sudo ufw allow 22/tcp    # SSH
+sudo ufw allow 5173/tcp  # Frontend
+sudo ufw allow 9000/tcp  # Backend API
+sudo ufw enable
+
+# Disable unnecessary services
+sudo systemctl disable bluetooth
+sudo systemctl disable hciuart
+```
+
+### 📊 Monitoring Pi Resources
+
+```bash
+# CPU temperature (keep below 75°C)
+vcgencmd measure_temp
+
+# Memory usage
+free -h
+
+# Docker container stats
+docker stats
+
+# Service logs
+sudo journalctl -u ai-soc-backend -f
+sudo journalctl -u ai-soc-frontend -f
+```
+
+### 🔧 Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Out of memory errors | Increase swap, reduce Docker memory limits |
+| Slow frontend builds | Use pre-built dist/ from x86_64 machine |
+| Kafka crashes | Reduce `log.segment.bytes` to 50MB |
+| CPU throttling | Add heatsink + fan, use `performance` governor |
+| Poetry timeout | Increase timeout: `poetry config http-basic.timeout 300` |
+
+### 🌡️ Thermal Management
+
+Raspberry Pi 5 can throttle at 85°C. Recommended cooling:
+- **Passive:** Official Pi 5 case with aluminum heatsink
+- **Active:** Argon NEO 5 case with PWM fan
+- **Monitor:** `watch -n 1 vcgencmd measure_temp`
+
+### 📡 Network Configuration
+
+**Static IP (recommended for SOC applications):**
+```bash
+# Edit /etc/dhcpcd.conf
+sudo nano /etc/dhcpcd.conf
+
+# Add:
+interface eth0
+static ip_address=192.168.1.100/24
+static routers=192.168.1.1
+static domain_name_servers=1.1.1.1 8.8.8.8
+```
+
+### 🔄 Automatic Updates
+
+```bash
+# Enable unattended security updates
+sudo apt-get install -y unattended-upgrades
+sudo dpkg-reconfigure --priority=low unattended-upgrades
+
+# Auto-restart services on update
+sudo systemctl enable ai-soc-backend
+sudo systemctl enable ai-soc-frontend
+```
+
+### 📈 Scaling with Multiple Pi 5 Units
+
+**Distributed SOC Architecture:**
+```
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│   Pi 5 Node 1   │      │   Pi 5 Node 2   │      │   Pi 5 Node 3   │
+│  (Kafka Leader) │◄────►│ (Threat Intel)  │◄────►│  (LLM Worker)   │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+         │                        │                        │
+         └────────────────────────┴────────────────────────┘
+                                  │
+                          ┌───────▼────────┐
+                          │  Central SIEM  │
+                          │   (Optional)   │
+                          └────────────────┘
+```
+
+**Configure Kafka cluster:**
+```yaml
+# kafka-docker-compose.yml for distributed deployment
+services:
+  kafka:
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://pi-node-1:9092
+      KAFKA_ZOOKEEPER_CONNECT: pi-node-1:2181,pi-node-2:2181,pi-node-3:2181
+```
+
+### 🎓 Educational Use
+
+Perfect for cybersecurity training:
+- **Cost-effective:** ~$100 per node vs. $1000+ servers
+- **Portable:** Fits in a backpack for demos
+- **Safe:** Isolated from production networks
+- **Realistic:** Full SOC capabilities at scale
+
+---
+
 ## Key Takeaways
 
 1. Ingests threat intelligence and raw telemetry from every endpoint (phones, macOS VMs, Kubernetes workloads).

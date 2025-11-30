@@ -30,13 +30,14 @@ class ConnectorRegistry:
 
     @staticmethod
     def _make_s3_client():
+        import os
         import aiobotocore.session
 
         session = aiobotocore.session.get_session()
         return session.create_client(
             "s3",
-            endpoint_url="http://minio:9000",
-            aws_secret_access_key="minioadmin",
-            aws_access_key_id="minioadmin",
-            region_name="us-east-1",
+            endpoint_url=os.getenv("MINIO_ENDPOINT", "http://minio:9000"),
+            aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
+            aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
+            region_name=os.getenv("AWS_REGION", "us-east-1"),
         )
